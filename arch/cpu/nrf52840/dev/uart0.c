@@ -50,8 +50,13 @@ static int (*input_handler)(unsigned char c);
 
 #define UART_INSTANCE NRF_UART0
 /*---------------------------------------------------------------------------*/
-#define TX_PIN  NRF_UART0_TX_PIN
-#define RX_PIN  NRF_UART0_RX_PIN
+#define TX_PIN   NRF_UART0_TX_PIN
+#define RX_PIN   NRF_UART0_RX_PIN
+
+#if NRF_UART0_USE_HWFC
+#define RTS_PIN  NRF_UART0_RTS_PIN
+#define CTS_PIN  NRF_UART0_CTS_PIN
+#endif
 /*---------------------------------------------------------------------------*/
 void
 uart0_set_input(int (*input)(unsigned char c))
@@ -59,12 +64,14 @@ uart0_set_input(int (*input)(unsigned char c))
   input_handler = input;
 
   if(input != NULL) {
-    nrf_uart_int_enable(UART_INSTANCE, NRF_UART_INT_MASK_RXDRDY);
+    nrf_uart_int_enable(UART_INSTANCE, NRF_UART_INT_MASK_RXDRDY | 
+                                       NRF_UART_INT_MASK_ERROR);
     NVIC_ClearPendingIRQ(UARTE0_UART0_IRQn);
     NVIC_EnableIRQ(UARTE0_UART0_IRQn);
     nrf_uart_task_trigger(UART_INSTANCE, NRF_UART_TASK_STARTRX);
   } else {
-    nrf_uart_int_disable(UART_INSTANCE, NRF_UART_INT_MASK_RXDRDY);
+    nrf_uart_int_disable(UART_INSTANCE, NRF_UART_INT_MASK_RXDRDY | 
+                                        NRF_UART_INT_MASK_ERROR);
     NVIC_ClearPendingIRQ(UARTE0_UART0_IRQn);
     NVIC_DisableIRQ(UARTE0_UART0_IRQn);
     nrf_uart_task_trigger(UART_INSTANCE, NRF_UART_TASK_STOPRX);
@@ -90,9 +97,22 @@ uart0_init(unsigned long ubr)
   nrf_gpio_cfg_input(RX_PIN, NRF_GPIO_PIN_NOPULL);
 
   nrf_uart_baudrate_set(UART_INSTANCE, NRF_UART_BAUDRATE_115200);
-  nrf_uart_configure(UART_INSTANCE, NRF_UART_PARITY_EXCLUDED,
-                     NRF_UART_HWFC_DISABLED);
   nrf_uart_txrx_pins_set(UART_INSTANCE, TX_PIN, RX_PIN);
+
+#if NRF_UART0_USE_HWFC
+  nrf_gpio_cfg_output(RTS_PIN);
+  nrf_gpio_pin_set(RTS_PIN);
+  nrf_gpio_cfg_input(CTS_PIN, NRF_GPIO_PIN_NOPULL);
+
+  nrf_uart_hwfc_pins_set(UART_INSTANCE, RTS_PIN, CTS_PIN);
+
+  nrf_uart_configure(UART_INSTANCE, NRF_UART_PARITY_EXCLUDED, 
+                     NRF_UART_HWFC_ENABLED);
+#else
+  nrf_uart_configure(UART_INSTANCE, NRF_UART_PARITY_EXCLUDED, 
+                     NRF_UART_HWFC_DISABLED);
+#endif /* NRF_UART0_USE_HWFC */
+
   nrf_uart_event_clear(UART_INSTANCE, NRF_UART_EVENT_TXDRDY);
   nrf_uart_enable(UART_INSTANCE);
   nrf_uart_task_trigger(UART_INSTANCE, NRF_UART_TASK_STARTTX);
@@ -101,8 +121,13 @@ uart0_init(unsigned long ubr)
 void
 UARTE0_UART0_IRQHandler(void)
 {
-  nrf_uart_event_clear(UART_INSTANCE, NRF_UART_EVENT_RXDRDY);
-  input_handler(nrf_uart_rxd_get(UART_INSTANCE));
+  if(nrf_uart_event_check(UART_INSTANCE, NRF_UART_EVENT_ERROR)) {
+    nrf_uart_event_clear(UART_INSTANCE, NRF_UART_EVENT_ERROR);
+    nrf_uart_event_clear(UART_INSTANCE, NRF_UART_EVENT_RXDRDY);
+  } else if(nrf_uart_event_check(UART_INSTANCE, NRF_UART_EVENT_RXDRDY)) {
+    nrf_uart_event_clear(UART_INSTANCE, NRF_UART_EVENT_RXDRDY);
+    input_handler(nrf_uart_rxd_get(UART_INSTANCE));
+  }
 }
 /*---------------------------------------------------------------------------*/
 /**

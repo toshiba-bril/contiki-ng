@@ -94,6 +94,10 @@
 #define NRF_UART0_TX_PIN 6
 #define NRF_UART0_RX_PIN 8
 
+#define NRF_UART0_USE_HWFC 1
+#define NRF_UART0_RTS_PIN  5
+#define NRF_UART0_CTS_PIN  7
+
 /** @} */
 /*---------------------------------------------------------------------------*/
 /** @}
